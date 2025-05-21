@@ -1,2 +1,2 @@
-# jules
-尝试用google的jules来做一些有意思的项目
+# llm algorithm
+大模型算法相关的内容 包括sft，lora，rlhf，dpo等
