@@ -1,3 +1,5 @@
+中文版说明请参见 [README_zh.md](README_zh.md)
+
 # LLM Fine-tuning for Sentiment Analysis
 
 ## Overview
