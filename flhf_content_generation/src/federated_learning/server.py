@@ -1,41 +1,43 @@
-import torch
-from .model import SimpleSeq2SeqModel
+import torch # Keep torch if it's used by OrderedDict or model state_dict, otherwise it might be removed.
+from .model import AuxiliaryPromptStrategyModel # Changed import
 from collections import OrderedDict
 
 class Server:
     """
-    Represents the central server in the Federated Learning system.
+    Represents the central server in an API-based Federated Learning with Human Feedback (FLHF) system.
 
-    The server is responsible for managing the global model, aggregating model
-    updates received from clients, and providing the updated global model back
-    to the clients.
+    The server is responsible for managing the global auxiliary model (e.g.,
+    `AuxiliaryPromptStrategyModel`). This auxiliary model is used by clients to
+    formulate effective prompts for a central Large Language Model (LLM).
+    The server aggregates updates for this auxiliary model from clients.
 
     Attributes:
-        global_model (SimpleSeq2SeqModel): The global instance of the model.
+        global_model (AuxiliaryPromptStrategyModel): The global instance of the
+                                                     auxiliary prompt strategy model.
     """
-    def __init__(self, model_config):
+    def __init__(self, model_config: dict):
         """
         Initializes the Server instance.
 
         Args:
             model_config (dict): Configuration dictionary for instantiating the
-                                 global model. Passed to `SimpleSeq2SeqModel`.
+                                 global `AuxiliaryPromptStrategyModel`.
+                                 Example: {'num_prompt_templates': 5, 'num_fixed_keywords': 10, 'input_features': 1}
         """
-        self.global_model = SimpleSeq2SeqModel(**model_config)
+        self.global_model = AuxiliaryPromptStrategyModel(**model_config)
 
-    def aggregate_model_updates(self, client_model_weights_list):
+    def aggregate_model_updates(self, client_model_weights_list: list[OrderedDict]):
         """
-        Aggregates model updates from multiple clients using Federated Averaging (FedAvg).
+        Aggregates auxiliary model updates from multiple clients using Federated Averaging (FedAvg).
 
-        The weights from the client models are averaged and loaded into the
-        server's global model.
+        The weights (state_dict) from the clients' auxiliary models are averaged
+        and loaded into the server's global auxiliary model.
 
         Args:
             client_model_weights_list (list of OrderedDict): A list where each
-                element is a state dictionary (OrderedDict) representing the
-                model weights from a client.
+                element is a state dictionary from a client's `AuxiliaryPromptStrategyModel`.
         """
-        # Federated Averaging (FedAvg)
+        # Federated Averaging (FedAvg) logic remains applicable
         if not client_model_weights_list:
             return
 
@@ -58,14 +60,15 @@ class Server:
         # Update the global model's weights
         self.global_model.load_state_dict(aggregated_weights)
 
-    def get_global_model_weights(self):
+    def get_global_model_weights(self) -> OrderedDict:
         """
-        Retrieves the weights of the server's global model.
+        Retrieves the weights of the server's global auxiliary model.
 
         This is typically called by clients at the beginning of an FL round
-        to get the latest global model.
+        to get the latest global auxiliary model parameters.
 
         Returns:
-            OrderedDict: A state dictionary containing the weights of the global model.
+            OrderedDict: A state dictionary containing the weights of the
+                         global `AuxiliaryPromptStrategyModel`.
         """
         return self.global_model.state_dict()

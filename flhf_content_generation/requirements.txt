@@ -1,1 +1,2 @@
-# Requirements will be added here
+torch
+# Other requirements can be added below this line.
