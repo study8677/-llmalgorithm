@@ -1,28 +1,29 @@
-# FLHF for Personalized Content Generation
+# FLHF for Personalized Content Generation via Large Model APIs
 
 ## 1. Overview
-This project aims to explore Federated Learning with Human Feedback (FLHF) for personalized content generation tasks. It provides a foundational framework for simulating FLHF scenarios, focusing on a sequence-to-sequence task like text summarization as an initial proof-of-concept.
+This project explores Federated Learning with Human Feedback (FLHF) for personalized content generation, simulating an environment where clients interact with a powerful, centralized Large Language Model (LLM) (e.g., GPT-3/4 like) via an API for content generation. The FLHF mechanism is employed to train or fine-tune a *smaller auxiliary model* or a *prompting strategy* on the client-side. These auxiliary components are then aggregated on the server-side (or kept local if personalization is key) to help personalize, guide, or adapt the output from the main LLM to specific user needs or contexts, without directly fine-tuning the LLM itself.
 
 ## 2. Project Structure
 The project is organized as follows:
 
 ```
 flhf_content_generation/
-├── data/               # Placeholder for datasets (e.g., text, summaries)
+├── data/               # Placeholder for datasets (e.g., prompts, feedback data)
 ├── notebooks/          # Jupyter notebooks for experiments and PoCs
 │   └── poc_flhf_summarization.ipynb # Demonstrates the FLHF flow
 ├── src/                # Source code for the FLHF framework
 │   ├── federated_learning/ # Core Federated Learning components
 │   │   ├── __init__.py
-│   │   ├── model.py        # Defines the neural network model (e.g., SimpleSeq2SeqModel)
-│   │   ├── client.py       # Defines the Client logic for local training
-│   │   └── server.py       # Defines the Server logic for model aggregation
+│   │   ├── model.py        # Defines the auxiliary model/prompt strategy (e.g., AuxiliaryPromptStrategyModel)
+│   │   ├── client.py       # Defines Client logic: uses auxiliary model, queries LLM API, trains auxiliary model
+│   │   └── server.py       # Defines Server logic: aggregates updates for the auxiliary model/strategy
 │   ├── feedback/         # Human feedback simulation components
 │   │   ├── __init__.py
 │   │   └── feedback_simulator.py # Simulates human feedback (scores, preferences)
-│   ├── __init__.py       # Makes 'src' a package (if needed for certain run configurations)
-│   ├── data_utils.py     # Utilities for data loading and preprocessing
-│   └── flhf_process.py   # Main script to orchestrate the FLHF simulation
+│   ├── __init__.py       # Makes 'src' a package
+│   ├── data_utils.py     # Utilities for data loading and preprocessing for auxiliary model training
+│   ├── llm_api_simulator.py # Simulates responses from a powerful LLM API
+│   └── flhf_process.py   # Main script to orchestrate the FLHF simulation with LLM API interaction
 ├── tests/              # Unit tests for various components
 │   ├── __init__.py
 │   ├── test_model.py
@@ -31,17 +32,19 @@ flhf_content_generation/
 │   ├── test_feedback_simulator.py
 │   └── test_data_utils.py
 ├── README.md           # This file
+├── README_zh.md        # Chinese version of this README
 └── requirements.txt    # Python dependencies (e.g., torch)
 ```
 
 ## 3. Core Components
 
-*   **`src/federated_learning/model.py`**: Defines `SimpleSeq2SeqModel`, a basic sequence-to-sequence neural network. Currently, its forward pass is a placeholder.
-*   **`src/federated_learning/client.py`**: Defines the `Client` class, which manages local model training, content generation, and interaction with the server. Local training and content generation methods are placeholders.
-*   **`src/federated_learning/server.py`**: Defines the `Server` class, responsible for global model aggregation (e.g., using Federated Averaging - FedAvg).
-*   **`src/feedback/feedback_simulator.py`**: Defines `FeedbackSimulator` to mimic human feedback, providing scores or preferences for generated content.
-*   **`src/data_utils.py`**: Provides utility functions for data handling, most notably `get_dummy_dataloaders`, which generates placeholder data for clients, and `TextDataset` for creating PyTorch datasets.
-*   **`src/flhf_process.py`**: Contains `run_flhf_simulation`, the main script that orchestrates the entire FLHF process, including client initialization, training rounds, feedback collection, and server aggregation.
+*   **`src/federated_learning/model.py`**: Defines `AuxiliaryPromptStrategyModel` (example name), representing the smaller, client-side model or prompt engineering strategy. This component is what gets updated through the FLHF process.
+*   **`src/federated_learning/client.py`**: Defines the `Client` class. Clients use their local auxiliary model/strategy to formulate effective prompts, query the central (simulated) LLM API for content generation, receive human feedback on the generated content, and then train/update their auxiliary model/strategy based on this feedback.
+*   **`src/federated_learning/server.py`**: Defines the `Server` class, now responsible for aggregating updates for the distributed auxiliary models or prompt strategies from the clients.
+*   **`src/feedback/feedback_simulator.py`**: Defines `FeedbackSimulator` to mimic human feedback (scores, preferences) on content generated by the LLM.
+*   **`src/data_utils.py`**: Provides utility functions for data handling, primarily for loading data relevant to training the auxiliary model/prompt strategy (e.g., prompts, feedback data, context).
+*   **`src/llm_api_simulator.py`**: Simulates the behavior and responses of a powerful, general-purpose LLM API. This allows for development and testing without actual API costs or dependencies.
+*   **`src/flhf_process.py`**: Contains `run_flhf_simulation`, the main script that orchestrates the entire FLHF process. This now includes clients formulating prompts, querying the simulated LLM API, receiving feedback, updating their auxiliary models/strategies, and server-side aggregation.
 
 ## 4. Setup and Installation
 
@@ -68,7 +71,7 @@ flhf_content_generation/
 
 ## 5. Running the Proof-of-Concept
 
-The proof-of-concept (PoC) demonstrates the basic FLHF flow using dummy data and placeholder model logic.
+The proof-of-concept (PoC) demonstrates the API-based FLHF flow using dummy data, a simulated LLM API, and placeholder auxiliary model logic.
 
 1.  Navigate to the `notebooks` directory:
     ```bash
@@ -80,7 +83,7 @@ The proof-of-concept (PoC) demonstrates the basic FLHF flow using dummy data and
     # or
     # jupyter lab poc_flhf_summarization.ipynb
     ```
-3.  Open `poc_flhf_summarization.ipynb` and run the cells sequentially. The notebook handles necessary imports and uses the `run_flhf_simulation` function.
+3.  Open `poc_flhf_summarization.ipynb` and run the cells sequentially. The notebook handles necessary imports and uses the `run_flhf_simulation` function, adapted for the new API-based flow.
 
     *Note*: The import paths in the notebook are configured assuming it is run from the `notebooks` directory or that the project root is correctly added to `sys.path`.
 
@@ -96,19 +99,21 @@ Unit tests are provided to verify the functionality of individual components.
     ```bash
     python -m unittest discover tests
     ```
-    This command will automatically discover and run all test files (named `test_*.py`) in the `tests` directory.
+    This command will automatically discover and run all test files (named `test_*.py`) in the `tests` directory. (Tests will need to be updated to reflect changes in component interactions).
 
 ## 7. Future Work / Current Status
 
-This project is currently a foundational setup with placeholder logic in many critical areas. The primary focus has been on establishing the overall architecture and simulation flow.
+This project has been refocused to simulate an FLHF process interacting with a powerful LLM via an API, training an auxiliary model/prompt strategy. The core architecture for this simulation is in place.
 
 Key areas for future development include:
-*   **Implement Model Logic**: Replace the placeholder `forward` pass in `SimpleSeq2SeqModel` with actual encoder-decoder logic (e.g., using LSTM or Transformer layers).
-*   **Implement Client Training**: Develop the `train_local_model` method in `Client` with a proper training loop, loss calculation, and backpropagation.
-*   **Implement Content Generation**: Flesh out the `generate_content` method in `Client` for actual sequence generation.
-*   **Sophisticated Feedback Mechanisms**: Enhance `FeedbackSimulator` with more realistic feedback models. Integrate mechanisms for clients to utilize this feedback to update their models (e.g., basic reinforcement learning from rewards, or supervised fine-tuning on preferred samples).
-*   **Real Dataset Integration**: Replace dummy data with actual datasets for content generation tasks (e.g., news articles for summarization). Update `data_utils.py` accordingly.
-*   **Advanced RLHF Algorithms**: Explore and implement more advanced Reinforcement Learning from Human Feedback (RLHF) algorithms (e.g., PPO for policy updates based on feedback).
-*   **Evaluation Metrics**: Implement and track relevant metrics (e.g., ROUGE for summarization, perplexity, user satisfaction proxies) to evaluate model performance and the impact of FLHF.
-*   **Configuration Management**: Introduce a more robust configuration system (e.g., using YAML files or dedicated config objects).
-*   **Logging and Experiment Tracking**: Integrate comprehensive logging and experiment tracking tools (e.g., TensorBoard, MLflow).
+*   **Implement Sophisticated Auxiliary Models**: Develop more advanced auxiliary models (e.g., small neural networks for prompt parameterization, rule-based systems, or learnable prompt embeddings).
+*   **Develop Diverse Prompt Engineering Strategies**: Explore and implement various learnable prompt engineering strategies that can be optimized via FLHF.
+*   **Refine LLM API Simulator**: Enhance `llm_api_simulator.py` for more realistic LLM behavior, including simulating different response styles, latencies, and potential API errors.
+*   **Implement Client-Side Auxiliary Model Training**: Develop the actual training loop within the `Client` for updating the auxiliary model/strategy based on feedback and LLM responses.
+*   **Advanced Feedback Integration**: Explore more nuanced ways to integrate human feedback into the auxiliary model/prompt strategy training.
+*   **Real Dataset Integration**: Use real-world prompt datasets, user preferences, and contextual information to drive the simulation.
+*   **Integration with Actual LLM APIs (Optional/Experimental)**: If feasible and resources allow, explore integrating with actual LLM APIs for validation.
+*   **Evaluation Metrics**: Define and implement metrics to evaluate the effectiveness of the auxiliary model/prompt strategy in improving LLM output personalization and quality.
+*   **Configuration Management**: Introduce a more robust configuration system.
+*   **Logging and Experiment Tracking**: Integrate comprehensive logging and experiment tracking.
+```

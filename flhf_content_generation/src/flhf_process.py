@@ -7,66 +7,76 @@ import torch # Ensure PyTorch is the framework
 try:
     from flhf_content_generation.src.federated_learning.server import Server
     from flhf_content_generation.src.federated_learning.client import Client
-    # SimpleSeq2SeqModel might be instantiated by Server/Client, so direct import might not be needed here
-    # from flhf_content_generation.src.federated_learning.model import SimpleSeq2SeqModel
+    from flhf_content_generation.src.federated_learning.model import AuxiliaryPromptStrategyModel # Changed
     from flhf_content_generation.src.feedback.feedback_simulator import FeedbackSimulator
+    from flhf_content_generation.src.llm_api_simulator import LLMAPISimulator # Added
 except ImportError:
     # Fallback for cases where the script might be run directly from src or a similar context
-    # This is common in development but not ideal for package deployment
     from federated_learning.server import Server
     from federated_learning.client import Client
+    from federated_learning.model import AuxiliaryPromptStrategyModel # Changed
     from feedback.feedback_simulator import FeedbackSimulator
+    from llm_api_simulator import LLMAPISimulator # Added
 
 
 def run_flhf_simulation(
-    num_rounds,
-    num_clients,
-    model_config,
-    client_data_loaders_placeholder,
-    learning_rate,
-    epochs_per_client,
-    feedback_type='score'
+    num_rounds: int,
+    num_clients: int,
+    model_config: dict, # For AuxiliaryPromptStrategyModel
+    client_data_loaders_placeholder: list, # Could provide context/input for auxiliary model
+    learning_rate: float,
+    epochs_per_client: int,
+    predefined_prompt_templates: list[str], # Added
+    predefined_keywords: list[str],         # Added
+    feedback_type: str = 'score',
+    llm_api_latency: float = 0.1            # Added for LLM API Simulator
 ):
     """
-    Main function to orchestrate and simulate the Federated Learning with Human Feedback (FLHF) process.
+    Main function to orchestrate and simulate the API-based FLHF process.
 
-    This function initializes the server, clients, and feedback simulator. It then runs
-    a series of FL rounds. In each round, clients train locally, generate content,
-    receive simulated feedback, and then their model updates are aggregated by the server.
-
-    The current implementation uses placeholder logic for actual model training,
-    content generation, and the client's utilization of feedback.
+    This function initializes the server (managing the global auxiliary model),
+    clients (each with a local auxiliary model), an LLM API simulator, and a
+    feedback simulator.
+    In each round:
+    1. Clients receive the global auxiliary model.
+    2. Clients use their auxiliary model to help formulate a prompt.
+    3. Clients query the (simulated) LLM API to get generated content.
+    4. Simulated human feedback is obtained for the generated content.
+    5. Clients train their local auxiliary model based on this feedback.
+    6. The server aggregates updates to the global auxiliary model.
 
     Args:
-        num_rounds (int): The total number of federated learning rounds to simulate.
-        num_clients (int): The number of clients to participate in the simulation.
-        model_config (dict): Configuration dictionary for the model, to be used by
-                             both server and clients.
-        client_data_loaders_placeholder (list of torch.utils.data.DataLoader):
-            A list of DataLoader objects, one for each client, providing their local data.
-            If the list is shorter than `num_clients`, DataLoaders will be reused.
-        learning_rate (float): The learning rate for client-side optimizers during local training.
-        epochs_per_client (int): The number of local training epochs each client performs per round.
-        feedback_type (str, optional): The type of feedback to be simulated
-                                       ('score' or 'preference'). Defaults to 'score'.
+        num_rounds (int): Total number of federated learning rounds.
+        num_clients (int): Number of clients.
+        model_config (dict): Configuration for the `AuxiliaryPromptStrategyModel`.
+                             Example: {'num_prompt_templates': N, 'num_fixed_keywords': M, 'input_features': F}
+        client_data_loaders_placeholder (list): List of DataLoader objects.
+                                                Data might be used by clients to inform
+                                                their auxiliary model's input.
+        learning_rate (float): Learning rate for client-side auxiliary model optimizers.
+        epochs_per_client (int): Local training epochs for the auxiliary model per round.
+        predefined_prompt_templates (list[str]): List of prompt templates available to clients.
+        predefined_keywords (list[str]): List of keywords available to clients.
+        feedback_type (str, optional): Type of feedback ('score' or 'preference'). Defaults to 'score'.
+        llm_api_latency (float, optional): Simulated latency for the LLM API. Defaults to 0.1.
     """
-    print("Starting FLHF Simulation...")
+    print("Starting API-based FLHF Simulation...")
 
     # Initialization
-    print("Initializing Server, Clients, and Feedback Simulator...")
-    server = Server(model_config=model_config)
+    print("Initializing Server, Clients, LLM API Simulator, and Feedback Simulator...")
+    llm_api_simulator = LLMAPISimulator(api_latency=llm_api_latency)
+    server = Server(model_config=model_config) # Manages AuxiliaryPromptStrategyModel
     feedback_simulator = FeedbackSimulator(feedback_type=feedback_type)
 
     clients = []
     for i in range(num_clients):
-        # Each client needs its own data_loader.
-        # If client_data_loaders_placeholder is shorter than num_clients, this will error.
-        # For now, we'll cycle through available data loaders if fewer are provided than clients.
-        data_loader = client_data_loaders_placeholder[i % len(client_data_loaders_placeholder)] if client_data_loaders_placeholder else None
+        data_loader = client_data_loaders_placeholder[i % len(client_data_loaders_placeholder)] \
+            if client_data_loaders_placeholder else None
         client = Client(
             client_id=f"client_{i}",
-            model_config=model_config, # Clients will instantiate their own model
-            data_loader=data_loader
+            model_config=model_config, # For AuxiliaryPromptStrategyModel
+            data_loader=data_loader,   # For auxiliary model input context
+            learning_rate=learning_rate
         )
         clients.append(client)
     print(f"Initialized {len(clients)} clients.")
@@ -76,122 +86,122 @@ def run_flhf_simulation(
         print(f"\n--- Round {round_num + 1} / {num_rounds} ---")
 
         client_model_weights_list = []
-        global_weights = server.get_global_model_weights()
+        global_aux_model_weights = server.get_global_model_weights()
 
-        # For each client
-        for client_idx, client_obj in enumerate(clients):
+        for client_obj in clients:
             print(f"  Processing Client {client_obj.client_id}...")
 
-            # 1. Set global model weights
-            client_obj.set_global_model_weights(global_weights)
+            # 1. Set global auxiliary model weights
+            client_obj.set_global_model_weights(global_aux_model_weights)
 
-            # 2. Train local model (standard FL training)
-            print(f"    Client {client_obj.client_id}: Starting local training...")
-            # Ensure data_loader is not None if training is expected
+            # 2. Define client_input_data for the auxiliary model
+            # This is a placeholder. In a real scenario, this might come from client_obj.data_loader
+            # or be specific client state information.
+            # The shape should be (batch_size, model_config['input_features'])
+            # For simplicity, using batch_size = 1.
+            client_input_data_placeholder = torch.ones(1, model_config.get('input_features', 1))
             if client_obj.data_loader:
-                 client_obj.train_local_model(num_epochs=epochs_per_client, learning_rate=learning_rate)
-                 print(f"    Client {client_obj.client_id}: Local training finished.")
-            else:
-                print(f"    Client {client_obj.client_id}: No data loader, skipping local training.")
+                # Example: try to get one batch of data to use as input
+                # This assumes data_utils.py prepares data suitable for auxiliary model input
+                try:
+                    # This part needs to be carefully designed based on how data_loader
+                    # is supposed to feed the auxiliary model.
+                    # For now, we'll just use the placeholder if data_loader is complex.
+                    # first_batch_data, _ = next(iter(client_obj.data_loader))
+                    # client_input_data_placeholder = first_batch_data[0].unsqueeze(0) #  Example
+                    pass # Keeping placeholder for now for simplicity.
+                except Exception as e:
+                    print(f"    Client {client_obj.client_id}: Could not use data_loader for input, using placeholder. Error: {e}")
+                    pass
 
 
-            # 3. Generate content
-            #    some_sample_input_placeholder needs to be defined, e.g., from client's data or a fixed input
-            #    For Seq2Seq, input might be a sequence of token IDs
-            some_sample_input_placeholder = torch.tensor([[1, 2, 3, 4, 5]]) # Example input
-            print(f"    Client {client_obj.client_id}: Generating content...")
-            generated_content_output = client_obj.generate_content(
-                input_sequence=some_sample_input_placeholder,
-                max_length=50
+            # 3. Generate content using auxiliary model and LLM API
+            print(f"    Client {client_obj.client_id}: Generating content via LLM API...")
+            generated_text, template_scores, keyword_scores = client_obj.generate_content_with_llm(
+                client_input_data=client_input_data_placeholder,
+                llm_api_simulator=llm_api_simulator,
+                predefined_prompt_templates=predefined_prompt_templates,
+                predefined_keywords=predefined_keywords
             )
-            # The actual 'generated_content' for feedback might be a string or a structured representation
-            # For now, let's assume generate_content returns something simple or we convert it
-            generated_content_for_feedback = f"Client {client_obj.client_id} generated: {generated_content_output if generated_content_output is not None else 'None'}"
-            print(f"    Client {client_obj.client_id}: Content generated: '{generated_content_for_feedback[:100]}...'")
+            print(f"    Client {client_obj.client_id}: LLM generated: '{generated_text[:100]}...'")
 
-
-            # 4. Get feedback
-            #    some_ground_truth_placeholder needs to be defined
-            some_ground_truth_placeholder = "This is a reference text for quality." # Example ground truth
-            feedback = feedback_simulator.get_feedback(
-                generated_content_1=generated_content_for_feedback,
+            # 4. Get feedback on the generated content
+            # Placeholder for ground truth, adapt as needed for your task
+            some_ground_truth_placeholder = "This is an ideal reference text or desired characteristic."
+            feedback_score = feedback_simulator.get_feedback(
+                generated_content_1=generated_text, # Note: get_feedback uses generated_content_1
                 ground_truth_content=some_ground_truth_placeholder
             )
-            print(f"    Client {client_obj.client_id}: Feedback received: {feedback}")
+            print(f"    Client {client_obj.client_id}: Feedback score received: {feedback_score}")
 
-            # 5. Placeholder for client model update based on feedback
-            # TODO: Implement client-side model update based on feedback
-            # (e.g., RLHF step, direct supervised fine-tuning on preferred samples, or adjusting model based on score).
-            # This step might involve:
-            #   - If feedback is a score, it could be used as a reward signal.
-            #   - If feedback indicates preference, the client might select preferred samples
-            #     and fine-tune further on these.
-            #   - For now, this step does not modify the model beyond train_local_model.
-            print(f"    Client {client_obj.client_id}: Model update based on feedback (placeholder).")
+            # 5. Train the client's local auxiliary model
+            print(f"    Client {client_obj.client_id}: Training local auxiliary model...")
+            client_obj.train_local_model(
+                feedback_score=feedback_score, # Pass feedback_score
+                template_scores=template_scores,
+                keyword_scores=keyword_scores,
+                num_epochs=epochs_per_client
+            )
+            print(f"    Client {client_obj.client_id}: Local auxiliary model training finished.")
 
-
-            # 6. Get local model weights
+            # 6. Get local auxiliary model weights
             client_model_weights_list.append(client_obj.get_local_model_weights())
-            print(f"    Client {client_obj.client_id}: Local model weights collected.")
+            print(f"    Client {client_obj.client_id}: Local auxiliary model weights collected.")
 
-        # Server aggregates model updates
+        # Server aggregates updates for the global auxiliary model
         if client_model_weights_list:
-            print("  Server: Aggregating model updates...")
+            print("  Server: Aggregating auxiliary model updates...")
             server.aggregate_model_updates(client_model_weights_list)
-            print("  Server: Model aggregation complete.")
+            print("  Server: Auxiliary model aggregation complete.")
         else:
-            print("  Server: No client weights to aggregate.")
+            print("  Server: No client auxiliary model weights to aggregate.")
 
-        # Optional: Print some status or metric for the round
-        # For example, evaluate the global model on a validation set
         print(f"--- End of Round {round_num + 1} ---")
 
-    print("\nFLHF Simulation Finished.")
+    print("\nAPI-based FLHF Simulation Finished.")
 
 
 if __name__ == '__main__':
-    # This block is executed when the script is run directly (e.g., python flhf_process.py)
-    # It provides an example of how to use the run_flhf_simulation function.
-    print("Running FLHF Process Script directly (example execution)...")
+    print("Running API-based FLHF Process Script directly (example execution)...")
 
-    # Define sample parameters for the simulation
-    # These should be configured based on the actual model and data requirements.
-    model_config_placeholder = {
-        'input_dim': 100,    # Example vocabulary size for input (to be updated by data_utils)
-        'output_dim': 100,   # Example vocabulary size for output (to be updated by data_utils)
-        'hidden_dim': 128,   # Hidden dimension size for LSTM layers
-        'num_layers': 2      # Number of LSTM layers in the model
+    # 1. Define Predefined Prompt Templates and Keywords
+    sample_prompt_templates = [
+        "Summarize the following text concisely: {input}",
+        "Provide a detailed explanation of this concept: {input}",
+        "Rewrite this in a formal tone: {input}",
+        "Make this text more casual and friendly: {input}",
+        "Generate a creative story based on this idea: {input}"
+    ]
+    sample_keywords = ["important", "technical", "simple", "beginner-friendly", "expert-level", "creative"]
+
+    # 2. Update Model Configuration for AuxiliaryPromptStrategyModel
+    #    'input_features' could be > 1 if client_input_data_placeholder is more complex.
+    aux_model_config = {
+        'num_prompt_templates': len(sample_prompt_templates),
+        'num_fixed_keywords': len(sample_keywords),
+        'input_features': 1  # Example: a single scalar feature from client context
     }
 
-    # Placeholder for client data loaders.
-    # In a real scenario, these would be instances of torch.utils.data.DataLoader,
-    # each providing access to a client's unique dataset.
-    # For this example, we'll use the dummy data generator from data_utils.py.
-    # (Note: data_utils.py needs to be importable, or this block needs adjustment)
-    try:
-        from data_utils import get_dummy_dataloaders # Try to import if in the same directory or PYTHONPATH
-        client_dataloaders, vocab = get_dummy_dataloaders(
-            num_clients=2, 
-            batch_size=4, 
-            num_samples_per_client=10,
-            fixed_max_seq_len=20
-        )
-        model_config_placeholder['input_dim'] = len(vocab)
-        model_config_placeholder['output_dim'] = len(vocab)
-        print(f"Successfully created dummy dataloaders. Vocab size: {len(vocab)}")
-    except ImportError:
-        print("Warning: Could not import get_dummy_dataloaders. Using None for client_data_loaders.")
-        print("The simulation will run but clients will not be able to train.")
-        client_dataloaders = [None, None] # Provide a list of Nones matching num_clients
+    # 3. Client DataLoaders (Placeholder - for auxiliary model input context)
+    #    This data would feed into the auxiliary model (client_input_data_placeholder).
+    #    The actual content for the LLM prompt is handled differently now (see Client.generate_content_with_llm).
+    #    For simplicity, we'll use None, as client_input_data_placeholder is currently torch.ones.
+    #    If you use data_utils, ensure it generates data suitable for the auxiliary model's input_features.
+    client_dataloaders_example = [None] * 2 # List of Nones for 2 clients
 
+    # 4. Run the Simulation
     run_flhf_simulation(
-        num_rounds=3,                     # Simulate for 3 rounds
-        num_clients=2,                    # With 2 clients
-        model_config=model_config_placeholder, # Use the defined model configuration
-        client_data_loaders_placeholder=client_dataloaders, # Pass the dummy data loaders
-        learning_rate=0.001,              # Learning rate for client optimizers
-        epochs_per_client=1,              # Each client trains for 1 epoch locally per round
-        feedback_type='score'             # Use 'score'-based feedback from the simulator
+        num_rounds=2,                     # Reduced rounds for quicker testing
+        num_clients=2,
+        model_config=aux_model_config,    # For AuxiliaryPromptStrategyModel
+        client_data_loaders_placeholder=client_dataloaders_example, # Context for aux model
+        learning_rate=0.01,               # LR for auxiliary model optimizer
+        epochs_per_client=1,              # Epochs for auxiliary model training
+        predefined_prompt_templates=sample_prompt_templates,
+        predefined_keywords=sample_keywords,
+        feedback_type='score',
+        llm_api_latency=0.0 # Faster for testing
     )
 
-    print("FLHF Process Script example execution finished.")
+    print("API-based FLHF Process Script example execution finished.")
+```

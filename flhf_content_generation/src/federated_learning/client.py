@@ -1,120 +1,166 @@
-from .model import SimpleSeq2SeqModel
+import torch
+import torch.optim as optim
+from .model import AuxiliaryPromptStrategyModel
+from flhf_content_generation.src.llm_api_simulator import LLMAPISimulator # Adjusted path
 
 class Client:
     """
-    Represents a client in the Federated Learning system.
+    Represents a client in an API-based Federated Learning with Human Feedback (FLHF) system.
 
-    Each client has its own local dataset (via a data_loader) and a local model.
-    It can perform local training, generate content, and synchronize its model
-    weights with a central server.
+    Each client has a local auxiliary model (e.g., `AuxiliaryPromptStrategyModel`)
+    that helps in formulating prompts for a central Large Language Model (LLM).
+    The client queries the LLM (simulated) via an API, receives feedback on the
+    generated content, and uses this feedback to train its local auxiliary model.
+    The client's data_loader is now used to provide input for the auxiliary model,
+    not for training a full Seq2Seq model.
 
     Attributes:
         client_id (str): A unique identifier for the client.
-        model (SimpleSeq2SeqModel): The local instance of the model.
-        data_loader (torch.utils.data.DataLoader): DataLoader for the client's local dataset.
+        model (AuxiliaryPromptStrategyModel): The local instance of the auxiliary model.
+        data_loader (torch.utils.data.DataLoader): DataLoader for the client's local
+                                                   data, which might be used as input
+                                                   to the auxiliary model or to provide
+                                                   content for prompt formulation.
+        optimizer (torch.optim.Optimizer): Optimizer for training the auxiliary model.
     """
-    def __init__(self, client_id, model_config, data_loader):
+    def __init__(self, client_id: str, model_config: dict, data_loader, learning_rate: float = 0.01):
         """
-        Initializes a Client instance.
+        Initializes a Client instance for the API-based FLHF setup.
 
         Args:
             client_id (str): The unique identifier for this client.
-            model_config (dict): Configuration dictionary for instantiating the local model.
-                                 Passed to `SimpleSeq2SeqModel`.
-            data_loader (torch.utils.data.DataLoader): DataLoader for the client's local dataset.
-                                                      Can be None if the client does not train.
+            model_config (dict): Configuration dictionary for instantiating the
+                                 local `AuxiliaryPromptStrategyModel`.
+                                 Example: {'num_prompt_templates': 5, 'num_fixed_keywords': 10, 'input_features': 1}
+            data_loader (torch.utils.data.DataLoader): DataLoader for the client's local data.
+                                                      This data might be used to feed the
+                                                      auxiliary model or provide content
+                                                      placeholders for prompts. Can be None.
+            learning_rate (float, optional): Learning rate for the auxiliary model's
+                                             optimizer. Defaults to 0.01.
         """
         self.client_id = client_id
-        self.model = SimpleSeq2SeqModel(**model_config)
-        self.data_loader = data_loader
+        self.model = AuxiliaryPromptStrategyModel(**model_config)
+        self.data_loader = data_loader # data_loader might provide inputs for self.model
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
 
-    def train_local_model(self, num_epochs, learning_rate):
+    def generate_content_with_llm(self,
+                                  client_input_data: torch.Tensor,
+                                  llm_api_simulator: LLMAPISimulator,
+                                  predefined_prompt_templates: list[str],
+                                  predefined_keywords: list[str]
+                                 ) -> tuple[str, torch.Tensor, torch.Tensor]:
         """
-        Placeholder for the client's local model training process.
-
-        In a full implementation, this method would:
-        1. Set the model to training mode.
-        2. Iterate over the local data for `num_epochs`.
-        3. For each batch, perform a forward pass, calculate loss, and perform backpropagation.
-        4. Update model parameters using an optimizer.
+        Generates content by first using the local auxiliary model to select a prompt
+        strategy, then querying the (simulated) LLM API.
 
         Args:
-            num_epochs (int): The number of epochs to train the local model.
-            learning_rate (float): The learning rate for the optimizer.
-        """
-        # Placeholder for local training logic
-        # Example:
-        # optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        # criterion = nn.CrossEntropyLoss() # Or appropriate loss for Seq2Seq
-        # self.model.train()
-        # for epoch in range(num_epochs):
-        #     for batch_idx, (data, target) in enumerate(self.data_loader):
-        #         optimizer.zero_grad()
-        #         output = self.model(data, target) # Assuming model handles target for loss calculation
-        #         # loss = criterion(output.view(-1, output.shape[-1]), target.view(-1)) # Adjust as per model output
-        #         # loss.backward()
-        #         # optimizer.step()
-        #         pass
-        pass
-
-    def generate_content(self, input_sequence, max_length=50):
-        """
-        Placeholder for generating content using the client's local model.
-
-        In a full implementation, this method would:
-        1. Set the model to evaluation mode.
-        2. Take an `input_sequence` (e.g., a prompt or start of a sequence).
-        3. Iteratively generate the output sequence up to `max_length` tokens.
-
-        Args:
-            input_sequence (torch.Tensor): The input sequence tensor to start generation.
-                                           Shape: (batch_size, seq_len).
-            max_length (int, optional): The maximum length of the generated sequence.
-                                        Defaults to 50.
+            client_input_data (torch.Tensor): Input tensor for the auxiliary model.
+                                              Shape: (batch_size, self.model.input_features).
+            llm_api_simulator (LLMAPISimulator): An instance of the LLM API simulator.
+            predefined_prompt_templates (list[str]): A list of available prompt templates.
+            predefined_keywords (list[str]): A list of available keywords.
 
         Returns:
-            torch.Tensor or list or None: Currently returns None.
-                                          In a full implementation, this would be the
-                                          generated sequence (e.g., tensor of token IDs or list of tokens).
+            tuple: A tuple containing:
+                - generated_text (str): The text generated by the (simulated) LLM.
+                - template_scores (torch.Tensor): The raw scores for templates from the auxiliary model.
+                - keyword_scores (torch.Tensor): The raw scores for keywords from the auxiliary model.
         """
-        # Placeholder for content generation logic
-        # Example:
-        # self.model.eval()
-        # generated_sequence = []
-        # current_input = input_sequence
-        # with torch.no_grad():
-        #     for _ in range(max_length):
-        #         output_token_probs = self.model(current_input) # Model might need adjustment for inference
-        #         # predicted_token_index = torch.argmax(output_token_probs, dim=-1)[:,-1].item() # Get last token
-        #         # if predicted_token_index == END_OF_SEQUENCE_TOKEN: # Define this token
-        #         #     break
-        #         # generated_sequence.append(predicted_token_index)
-        #         # current_input = torch.cat((current_input, torch.tensor([[predicted_token_index]])), dim=1) # Append predicted token
-        #         pass
-        # return generated_sequence
-        pass
+        self.model.eval()
+        with torch.no_grad(): # Ensure no gradients are computed during inference
+            template_scores, keyword_scores = self.model(client_input_data)
 
-    def set_global_model_weights(self, global_weights):
+        # Select a template (simplistic: argmax)
+        # Squeeze if batch_size is 1, otherwise handle batched selection appropriately
+        squeezed_template_scores = template_scores.squeeze()
+        selected_template_idx = torch.argmax(squeezed_template_scores)
+        chosen_template = predefined_prompt_templates[selected_template_idx.item()]
+
+        # Select keywords (simplistic: score > 0.5 threshold)
+        squeezed_keyword_scores = keyword_scores.squeeze()
+        chosen_keywords = [
+            predefined_keywords[i] for i, score in enumerate(squeezed_keyword_scores) if score > 0.5
+        ]
+
+        # Formulate the final prompt
+        # TODO: Make this more sophisticated. For now, placeholder content.
+        actual_user_content_placeholder = "This is some client-specific document content that needs processing."
+        prompt_input_content = actual_user_content_placeholder
+
+        final_prompt = chosen_template.replace("{input}", prompt_input_content)
+        if chosen_keywords:
+            final_prompt += " Keywords: " + ", ".join(chosen_keywords)
+        else:
+            final_prompt += " Keywords: None"
+
+
+        # Call the LLM API
+        generated_text = llm_api_simulator.generate(prompt=final_prompt)
+
+        return generated_text, template_scores, keyword_scores
+
+
+    def train_local_model(self,
+                          feedback_score: float,
+                          template_scores: torch.Tensor,
+                          keyword_scores: torch.Tensor,
+                          num_epochs: int = 1):
         """
-        Sets the client's local model weights from global model weights.
+        Placeholder for training the local `AuxiliaryPromptStrategyModel` based on feedback.
 
-        This is typically called at the beginning of an FL round to synchronize
-        the client model with the server's global model.
+        The goal is to adjust the auxiliary model so it produces template/keyword scores
+        that lead to higher feedback scores from the user/environment.
+
+        Args:
+            feedback_score (float): A scalar reward indicating the quality of the
+                                    content generated using the current strategy.
+                                    Higher is better.
+            template_scores (torch.Tensor): The raw scores for templates produced by the
+                                            auxiliary model for the action that was taken.
+            keyword_scores (torch.Tensor): The raw scores for keywords produced by the
+                                           auxiliary model for the action that was taken.
+            num_epochs (int, optional): The number of training epochs. Defaults to 1.
+        """
+        # TODO: Implement a proper loss function based on feedback and the nature of
+        #       AuxiliaryPromptStrategyModel (e.g., reinforcement learning like REINFORCE,
+        #       or a simpler supervised approach if direct labels for "good"
+        #       template/keyword choices can be derived from feedback).
+        #
+        # Current loss is a very simplistic placeholder for demonstration and to ensure gradient flow.
+        # It tries to "push" all scores higher if feedback is positive, which is not ideal.
+        # A proper RL loss would consider the probability of the chosen actions (template/keywords).
+        
+        self.model.train()
+        for epoch in range(num_epochs):
+            self.optimizer.zero_grad()
+            
+            # Simplistic placeholder loss: encourages all scores if feedback is positive.
+            # This is NOT a principled way to train but makes the code runnable.
+            # Assumes template_scores and keyword_scores are for a single instance (batch_size=1)
+            loss = -feedback_score * torch.sum(torch.cat([template_scores.flatten(), keyword_scores.flatten()]))
+
+            loss.backward()
+            self.optimizer.step()
+            
+            # print(f"Client {self.client_id}, Epoch {epoch}, Loss: {loss.item()}") # Optional: for debugging
+
+    def set_global_model_weights(self, global_weights: dict):
+        """
+        Sets the client's local auxiliary model weights from global model weights.
 
         Args:
             global_weights (OrderedDict): A state dictionary containing the weights
-                                          of the global model.
+                                          of the global auxiliary model.
         """
         self.model.load_state_dict(global_weights)
 
-    def get_local_model_weights(self):
+    def get_local_model_weights(self) -> dict:
         """
-        Retrieves the weights of the client's local model.
-
-        This is typically called after local training to send the updated weights
-        to the server for aggregation.
+        Retrieves the weights of the client's local auxiliary model.
 
         Returns:
-            OrderedDict: A state dictionary containing the weights of the local model.
+            OrderedDict: A state dictionary containing the weights of the local auxiliary model.
         """
         return self.model.state_dict()
+```
